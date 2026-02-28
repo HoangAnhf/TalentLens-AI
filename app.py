@@ -685,32 +685,135 @@ with tab1:
                                 result["JD_Comparison"] = None
                         else:
                             result["JD_Comparison"] = None
+                        # Final score: 100% JD if JD provided, else 100% CV
+                        if result["JD_Comparison"] and "PhuHop" in result["JD_Comparison"]:
+                            result["DiemTongHop"] = result["JD_Comparison"]["PhuHop"]
+                        else:
+                            result["DiemTongHop"] = result.get("Diem", 50)
                         st.session_state.parsed_cv_data = result
                         st.session_state.chat_history = []
                         st.success("Phân tích CV hoàn tất!")
 
         cv_data = st.session_state.parsed_cv_data
         if cv_data:
-            # Determine score color and progress bar fill color
-            score_class, progress_fill_class = get_score_color_class(cv_data["Diem"])
+            cv_score = cv_data.get("Diem", 50)
+            has_jd = cv_data.get("JD_Comparison") is not None
+            final_score = cv_data.get("DiemTongHop", cv_score)
 
-            # 7.3. Candidate Score Card
-            st.markdown(render_card_start("Điểm đánh giá ứng viên"), unsafe_allow_html=True)
+            score_class, progress_fill_class = get_score_color_class(final_score)
+            score_title = "Độ phù hợp với Job Description" if has_jd else "Điểm đánh giá ứng viên"
+
+            # 7.3. Main Score Card
+            st.markdown(render_card_start(score_title), unsafe_allow_html=True)
             st.markdown(
                 f"""
                 <div class="score-container">
                     <div class="score-value {score_class}">
-                        {cv_data["Diem"]}<small>/ 100 điểm</small>
+                        {final_score}<small>/ 100 điểm</small>
                     </div>
                     <div class="score-description">
                         <div class="progress-bar-container">
-                            <div class="progress-bar-fill {progress_fill_class}" style="width: {cv_data["Diem"]}%;"></div>
+                            <div class="progress-bar-fill {progress_fill_class}" style="width: {final_score}%;"></div>
                         </div>
-                        <div class="score-text-detail">Ứng viên đạt mức "{score_class.replace('score-color-', '').capitalize()}" dựa trên tiêu chí đánh giá.</div>
                     </div>
                 </div>
                 """, unsafe_allow_html=True
             )
+            st.markdown(render_card_end(), unsafe_allow_html=True)
+
+            # 7.3a. JD Detail (shown FIRST if JD provided, since JD score is the main score)
+            if has_jd:
+                jd_compare = cv_data["JD_Comparison"]
+
+                # JD skills matched/missing
+                st.markdown(render_card_start("Phân tích phù hợp JD"), unsafe_allow_html=True)
+                st.markdown(f'<div style="font-size:0.9rem;color:var(--text-medium);margin-bottom:0.8rem;">{jd_compare.get("NhanXet", "")}</div>', unsafe_allow_html=True)
+                col_jd_matched, col_jd_missing = st.columns(2)
+                with col_jd_matched:
+                    st.markdown("<h4>Kỹ năng phù hợp</h4>", unsafe_allow_html=True)
+                    if jd_compare["KyNangPhuHop"]:
+                        matched_skills_html = "<div class='badge-container'>"
+                        for skill in jd_compare["KyNangPhuHop"]:
+                            matched_skills_html += render_badge(skill, "green")
+                        matched_skills_html += "</div>"
+                        st.markdown(matched_skills_html, unsafe_allow_html=True)
+                    else:
+                        st.markdown("<p>Không có kỹ năng phù hợp.</p>", unsafe_allow_html=True)
+                with col_jd_missing:
+                    st.markdown("<h4>Kỹ năng còn thiếu</h4>", unsafe_allow_html=True)
+                    if jd_compare["KyNangThieu"]:
+                        missing_skills_html = "<div class='badge-container'>"
+                        for skill in jd_compare["KyNangThieu"]:
+                            missing_skills_html += render_badge(skill, "red")
+                        missing_skills_html += "</div>"
+                        st.markdown(missing_skills_html, unsafe_allow_html=True)
+                    else:
+                        st.markdown("<p>Không có kỹ năng còn thiếu.</p>", unsafe_allow_html=True)
+                st.markdown(render_card_end(), unsafe_allow_html=True)
+
+                # JD detailed sub-scores
+                diem_jd = jd_compare.get("DiemJD", {})
+                jd_sub_labels = {
+                    "KyNangPhuHopJD": ("Kỹ năng phù hợp JD", "25%"),
+                    "KinhNghiemPhuHopJD": ("Kinh nghiệm phù hợp JD", "25%"),
+                    "DuAnLienQuan": ("Dự án liên quan", "15%"),
+                    "HocVanChungChiYC": ("Học vấn & Chứng chỉ yêu cầu", "15%"),
+                    "NgoaiNguYeuCau": ("Ngoại ngữ & Yêu cầu khác", "10%"),
+                    "TiemNangPhatTrien": ("Tiềm năng phát triển", "10%"),
+                }
+                st.markdown(render_card_start(f"Chi tiết điểm phù hợp JD — {jd_compare['PhuHop']}/100"), unsafe_allow_html=True)
+                for key, (label, weight) in jd_sub_labels.items():
+                    sub = diem_jd.get(key, {"diem": 50, "nhanxet": ""})
+                    sub_score = sub.get("diem", 50) if isinstance(sub, dict) else 50
+                    sub_note = sub.get("nhanxet", "") if isinstance(sub, dict) else ""
+                    sub_class, sub_fill = get_score_color_class(sub_score)
+                    st.markdown(
+                        f"""
+                        <div style="margin-bottom:0.8rem;">
+                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.25rem;">
+                                <span style="font-weight:600;color:var(--text-dark);font-size:0.9rem;">{label} <span style="color:var(--text-medium);font-weight:400;">({weight})</span></span>
+                                <span class="{sub_class}" style="font-weight:700;font-size:0.95rem;">{sub_score}</span>
+                            </div>
+                            <div class="progress-bar-container" style="height:8px;">
+                                <div class="progress-bar-fill {sub_fill}" style="width:{sub_score}%;"></div>
+                            </div>
+                            <div style="font-size:0.8rem;color:var(--text-medium);margin-top:0.2rem;">{sub_note}</div>
+                        </div>
+                        """, unsafe_allow_html=True
+                    )
+                st.markdown(render_card_end(), unsafe_allow_html=True)
+
+            # 7.3b. Detailed CV Score Breakdown
+            diem_ct = cv_data.get("DiemChiTiet", {})
+            cv_sub_labels = {
+                "KyNangKyThuat": ("Kỹ năng kỹ thuật", "25%"),
+                "KinhNghiemLV": ("Kinh nghiệm làm việc", "25%"),
+                "DuAnThucTe": ("Dự án thực tế", "15%"),
+                "HocVanBangCap": ("Học vấn & Bằng cấp", "15%"),
+                "ChungChiNgoaiNgu": ("Chứng chỉ & Ngoại ngữ", "10%"),
+                "KyNangMem": ("Kỹ năng mềm & Hoạt động", "10%"),
+            }
+
+            st.markdown(render_card_start(f"Chi tiết điểm CV — {cv_score}/100"), unsafe_allow_html=True)
+            for key, (label, weight) in cv_sub_labels.items():
+                sub = diem_ct.get(key, {"diem": 50, "nhanxet": ""})
+                sub_score = sub.get("diem", 50) if isinstance(sub, dict) else 50
+                sub_note = sub.get("nhanxet", "") if isinstance(sub, dict) else ""
+                sub_class, sub_fill = get_score_color_class(sub_score)
+                st.markdown(
+                    f"""
+                    <div style="margin-bottom:0.8rem;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.25rem;">
+                            <span style="font-weight:600;color:var(--text-dark);font-size:0.9rem;">{label} <span style="color:var(--text-medium);font-weight:400;">({weight})</span></span>
+                            <span class="{sub_class}" style="font-weight:700;font-size:0.95rem;">{sub_score}</span>
+                        </div>
+                        <div class="progress-bar-container" style="height:8px;">
+                            <div class="progress-bar-fill {sub_fill}" style="width:{sub_score}%;"></div>
+                        </div>
+                        <div style="font-size:0.8rem;color:var(--text-medium);margin-top:0.2rem;">{sub_note}</div>
+                    </div>
+                    """, unsafe_allow_html=True
+                )
             st.markdown(render_card_end(), unsafe_allow_html=True)
 
             # 7.4. Candidate Information Card
@@ -793,52 +896,6 @@ with tab1:
                 st.markdown("<p>Không có thông tin dự án.</p>", unsafe_allow_html=True)
             st.markdown(render_card_end(), unsafe_allow_html=True)
 
-            # 7.9. JD Comparison Card (only displayed if a Job Description is provided in the sidebar)
-            if st.session_state.job_description and cv_data.get("JD_Comparison"):
-                jd_compare = cv_data["JD_Comparison"]
-                jd_score_class, jd_progress_fill_class = get_score_color_class(
-                    jd_compare["PhuHop"])  # Reuse score color logic
-
-                st.markdown(render_card_start("So sánh với Job Description"), unsafe_allow_html=True)
-                st.markdown(
-                    f"""
-                    <div class="score-container">
-                        <div class="score-value {jd_score_class}">
-                            {jd_compare["PhuHop"]}<small>% phù hợp</small>
-                        </div>
-                        <div class="score-description">
-                            <div class="progress-bar-container">
-                                <div class="progress-bar-fill {jd_progress_fill_class}" style="width: {jd_compare["PhuHop"]}%;"></div>
-                            </div>
-                            <div class="score-text-detail">{jd_compare["NhanXet"]}</div>
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True
-                )
-
-                col_jd_matched, col_jd_missing = st.columns(2)
-                with col_jd_matched:
-                    st.markdown("<h4>Kỹ năng phù hợp</h4>", unsafe_allow_html=True)
-                    if jd_compare["KyNangPhuHop"]:
-                        matched_skills_html = "<div class='badge-container'>"
-                        for skill in jd_compare["KyNangPhuHop"]:
-                            matched_skills_html += render_badge(skill, "green")
-                        matched_skills_html += "</div>"
-                        st.markdown(matched_skills_html, unsafe_allow_html=True)
-                    else:
-                        st.markdown("<p>Không có kỹ năng phù hợp.</p>", unsafe_allow_html=True)
-                with col_jd_missing:
-                    st.markdown("<h4>Kỹ năng còn thiếu</h4>", unsafe_allow_html=True)
-                    if jd_compare["KyNangThieu"]:
-                        missing_skills_html = "<div class='badge-container'>"
-                        for skill in jd_compare["KyNangThieu"]:
-                            missing_skills_html += render_badge(skill, "red")
-                        missing_skills_html += "</div>"
-                        st.markdown(missing_skills_html, unsafe_allow_html=True)
-                    else:
-                        st.markdown("<p>Không có kỹ năng còn thiếu.</p>", unsafe_allow_html=True)
-                st.markdown(render_card_end(), unsafe_allow_html=True)
-
             # 7.10. Export Report Card
             st.markdown(render_card_start("Xuất báo cáo"), unsafe_allow_html=True)
             # Create a dummy Excel file content for download
@@ -901,12 +958,23 @@ with tab2:
                     result = process_cv_with_ai(st.session_state.api_key, raw_text)
                     if "error" not in result:
                         result["filename"] = file.name
+                        # JD comparison for batch if JD provided
+                        jd_text = st.session_state.job_description
+                        if jd_text and jd_text.strip():
+                            jd_result = compare_cv_with_jd(st.session_state.api_key, raw_text, jd_text)
+                            if "error" not in jd_result:
+                                result["JD_Comparison"] = jd_result
+                                result["DiemTongHop"] = jd_result["PhuHop"]
+                            else:
+                                result["DiemTongHop"] = result.get("Diem", 50)
+                        else:
+                            result["DiemTongHop"] = result.get("Diem", 50)
                         st.session_state.batch_results.append(result)
                     else:
                         st.session_state.batch_results.append({
                             "filename": file.name,
                             "HoTen": file.name.split('.')[0].replace('_', ' '),
-                            "Email": "N/A", "Diem": 0, "HocVan": "N/A",
+                            "Email": "N/A", "Diem": 0, "DiemTongHop": 0, "HocVan": "N/A",
                             "KinhNghiem": "N/A", "KyNang": [],
                             "TomTat": f"Lỗi phân tích: {result['error']}"
                         })
@@ -914,7 +982,7 @@ with tab2:
                     st.session_state.batch_results.append({
                         "filename": file.name,
                         "HoTen": file.name.split('.')[0].replace('_', ' '),
-                        "Email": "N/A", "Diem": 0, "HocVan": "N/A",
+                        "Email": "N/A", "Diem": 0, "DiemTongHop": 0, "HocVan": "N/A",
                         "KinhNghiem": "N/A", "KyNang": [],
                         "TomTat": "Không thể trích xuất nội dung từ file."
                     })
@@ -931,11 +999,12 @@ with tab2:
                 {
                     "Hạng": i + 1,
                     "Tên": r["HoTen"],
-                    "Email": r["Email"],
-                    "Điểm": r["Diem"],
-                    "Học vấn": r["HocVan"],
-                    "Kinh nghiệm": r["KinhNghiem"]
-                } for i, r in enumerate(sorted(st.session_state.batch_results, key=lambda x: x["Diem"], reverse=True))
+                    "Email": r.get("Email", "N/A"),
+                    "Điểm tổng hợp": r.get("DiemTongHop", r.get("Diem", 0)),
+                    "Điểm CV": r.get("Diem", 0),
+                    "Học vấn": r.get("HocVan", "N/A"),
+                    "Kinh nghiệm": r.get("KinhNghiem", "N/A")
+                } for i, r in enumerate(sorted(st.session_state.batch_results, key=lambda x: x.get("DiemTongHop", x.get("Diem", 0)), reverse=True))
             ])
 
             # 8.4. Candidate Ranking Table
@@ -950,7 +1019,7 @@ with tab2:
                 original_data = next((item for item in st.session_state.batch_results if item["HoTen"] == r_row["Tên"]),
                                      None)
                 if original_data:
-                    with st.expander(f"{r_row.Tên} — {r_row.Điểm} điểm"):
+                    with st.expander(f"{r_row.Tên} — {r_row['Điểm tổng hợp']} điểm"):
                         col_details_left, col_details_right = st.columns(2)
                         with col_details_left:
                             st.markdown(
